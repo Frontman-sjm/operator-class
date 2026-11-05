@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>다양한 연산 - 교사 제어 모드</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Nanum Square Round -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_two@1.0/NanumSquareRound.css">
+  <!-- MQTT 라이브러리 (v4.3.7) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+  
+  <style>
+    body {
+      font-family: 'NanumSquareRound', sans-serif;
+      background-color: #EBFEF5;
+      color: #2D3436;
+      user-select: none;
+    }
+
+    /* 3D 아케이드 블록 버튼 스타일 */
+    .btn-3d {
+      transition: all 0.1s ease;
+      box-shadow: 0 5px 0 rgba(0, 0, 0, 0.2);
+    }
+    .btn-3d:active {
+      transform: translateY(3px);
+      box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2);
+    }
+
+    /* 엔트리 브랜드 블록 스타일 */
+    .entry-block-purple {
+      background-color: #A55EEA;
+      color: white;
+      box-shadow: 0 6px 0 #8854D0;
+    }
+    .entry-block-cyan {
+      background-color: #00D2D3;
+      color: white;
+      box-shadow: 0 5px 0 #00A8A9;
+    }
+    .entry-block-yellow {
+      background-color: #FFC048;
+      color: #333;
+      box-shadow: 0 5px 0 #E1B12C;
+    }
+    .entry-block-green {
+      background-color: #00E676;
+      color: white;
+      box-shadow: 0 5px 0 #00B53C;
+    }
+    .entry-block-red {
+      background-color: #FF5252;
+      color: white;
+      box-shadow: 0 5px 0 #D63031;
+    }
+
+    /* 엔트리 비교 연산 육각형 블록 디자인 */
+    .entry-hex-block {
+      background-color: #3B52E1;
+      clip-path: polygon(16px 0%, calc(100% - 16px) 0%, 100% 50%, calc(100% - 16px) 100%, 16px 100%, 0% 50%);
+    }
+
+    /* 엔트리 논리 블록 내부 서브 육각형 클릭 버튼 */
+    .entry-subhex-block {
+      background-color: #1E2B88;
+      clip-path: polygon(10px 0%, calc(100% - 10px) 0%, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0% 50%);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .entry-subhex-block:hover {
+      background-color: #2D3FE1;
+      transform: scale(1.08);
+    }
+
+    /* 애니메이션 효과 */
+    @keyframes bounceSlow {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    .animate-bounce-slow {
+      animation: bounceSlow 2s infinite ease-in-out;
+    }
+
+    @keyframes popIn {
+      0% { transform: scale(0.8); opacity: 0; }
+      80% { transform: scale(1.05); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-pop {
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    /* HUD Tab Active Highlight */
+    .hud-tab-active {
+      background-color: #A55EEA !important;
+      color: #FFFFFF !important;
+      box-shadow: 0 4px 0 #7835BA !important;
+      font-weight: 900 !important;
+    }
+
+    .hidden-by-role {
+      display: none !important;
+    }
+
+    /* Number Input 화살표 제거 */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+      -webkit-appearance: none; 
+      margin: 0; 
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+  </style>
+</head>
+<body class="min-h-screen py-6 px-4">
+
+  <!-- 메인 컨테이너 -->
+  <div class="max-w-[1150px] mx-auto bg-[#F4FBF7] border-[6px] border-[#1DE9B6] rounded-[32px] p-6 md:p-8 shadow-2xl relative">
+
+    <!-- 교사 동기화 원격 컨트롤 바 -->
+    <div class="mb-4 bg-emerald-900 text-white p-3 md:p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md">
+      <div class="flex items-center gap-2">
+        <span id="role-status-badge" class="bg-blue-600 text-white font-black px-3 py-1 rounded-full text-xs">🔒 학생 모드 (교사 제어 수신중)</span>
+        <span id="mqtt-status-text" class="text-xs text-emerald-200 font-bold">연결 대기 중</span>
+      </div>
+      
+      <div class="flex items-center gap-2">
+        <label for="room-code-input" class="text-xs md:text-sm font-bold text-emerald-100">수업 방 코드:</label>
+        <input type="text" id="room-code-input" value="101" class="w-20 md:w-24 px-2 py-1 text-center font-bold text-gray-900 rounded-lg text-sm focus:outline-none">
+        <button onclick="connectMQTT()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded-lg text-xs transition">방 접속</button>
+        <button id="teacher-login-btn" onclick="toggleTeacherMode()" class="bg-amber-500 hover:bg-amber-400 text-gray-950 font-black px-3 py-1 rounded-lg text-xs transition">👨‍🏫 교사 로그인</button>
+      </div>
+    </div>
+
+    <!-- 상단 HUD Header -->
+    <header class="mb-6">
+      <div class="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-2xl border-2 border-emerald-100 shadow-sm gap-4">
+        <h1 class="text-2xl font-black text-gray-800 flex items-center gap-2">
+          <span>💻</span> 다양한 연산
+        </h1>
+        <!-- 5단계 뱃지 네비게이션 -->
+        <div class="flex flex-wrap gap-2 justify-center">
+          <button id="badge-1" onclick="goToStage(1)" class="px-3 py-1.5 rounded-xl font-bold text-xs sm:text-sm bg-gray-100 text-gray-600 transition">1. 도전! 연산 퀴즈</button>
+          <button id="badge-2" onclick="goToStage(2)" class="px-3 py-1.5 rounded-xl font-bold text-xs sm:text-sm bg-gray-100 text-gray-600 transition">2. 학습 목표</button>
+          <button id="badge-3" onclick="goToStage(3)" class="px-3 py-1.5 rounded-xl font-bold text-xs sm:text-sm bg-gray-100 text-gray-600 transition">3. 산술 연산</button>
+          <button id="badge-4" onclick="goToStage(4)" class="px-3 py-1.5 rounded-xl font-bold text-xs sm:text-sm bg-gray-100 text-gray-600 transition">4. 비교 연산</button>
+          <button id="badge-5" onclick="goToStage(5)" class="px-3 py-1.5 rounded-xl font-bold text-xs sm:text-sm bg-gray-100 text-gray-600 transition">5. 논리 연산</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- STAGE 1: 도전! 연산 퀴즈 -->
+    <main id="stage-1" class="stage-content space-y-6">
+      <div class="bg-white rounded-3xl p-6 md:p-8 border-4 border-emerald-100 shadow-sm space-y-6">
+        
+        <div class="flex justify-between items-center">
+          <span class="bg-[#FFC048] text-amber-950 font-black px-4 py-1.5 rounded-full text-sm inline-block">STAGE 01</span>
+          <span id="quiz-step-indicator" class="bg-emerald-100 text-emerald-800 font-black px-4 py-1.5 rounded-full text-sm">1 / 5</span>
+        </div>
+
+        <!-- Q1 카드 -->
+        <div id="q-card-1" class="bg-emerald-50/60 border-4 border-emerald-200 rounded-3xl p-6 md:p-8 space-y-6">
+          <h3 class="text-2xl md:text-3xl font-black text-gray-800 leading-snug [word-break:keep-all]">
+            Q1. 젤리 17개를 5명의 친구들에게 똑같이 나누어 주려고 합니다. 1명당 젤리를 몇 개씩 받게 되고, 남은 젤리는 몇 개일까요?
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button onclick="checkQuiz(1, true, this)" class="entry-block-green p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              1) 몫: 3개 / 나머지: 2개
+            </button>
+            <button onclick="checkQuiz(1, false, this)" class="entry-block-red p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              2) 몫: 5개 / 나머지: 2개
+            </button>
+          </div>
+          <div id="q1-feedback" class="hidden"></div>
+          <div id="q1-next-btn-box" class="teacher-only text-right pt-2">
+            <button onclick="showQuizCard(2)" class="entry-block-purple font-black px-6 py-3 rounded-xl text-base btn-3d">
+              다음 퀴즈 풀기 (2/5) ➡️
+            </button>
+          </div>
+        </div>
+
+        <!-- Q2 카드 -->
+        <div id="q-card-2" class="hidden bg-emerald-50/60 border-4 border-emerald-200 rounded-3xl p-6 md:p-8 space-y-6">
+          <h3 class="text-2xl md:text-3xl font-black text-gray-800 leading-snug [word-break:keep-all]">
+            Q2. 롤러코스터는 키가 135cm 이상이어야 탑승할 수 있습니다. 오늘 놀러 온 민식이의 키는 140cm입니다. 민식이는 롤러코스터를 탈 수 있을까요?
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button onclick="checkQuiz(2, true, this)" class="entry-block-green p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              탈 수 있다 (True)
+            </button>
+            <button onclick="checkQuiz(2, false, this)" class="entry-block-red p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              탈 수 없다 (False)
+            </button>
+          </div>
+          <div id="q2-feedback" class="hidden"></div>
+          <div id="q2-next-btn-box" class="teacher-only text-right pt-2">
+            <button onclick="showQuizCard(3)" class="entry-block-purple font-black px-6 py-3 rounded-xl text-base btn-3d">
+              다음 퀴즈 풀기 (3/5) ➡️
+            </button>
+          </div>
+        </div>
+
+        <!-- Q3 카드 -->
+        <div id="q-card-3" class="hidden bg-emerald-50/60 border-4 border-emerald-200 rounded-3xl p-6 md:p-8 space-y-6">
+          <h3 class="text-2xl md:text-3xl font-black text-gray-800 leading-snug [word-break:keep-all]">
+            Q3. 영화관에서 학생증도 내고 10월 무료 쿠폰도 함께 제출하면 무료 팝콘을 나누어 줍니다. 지호는 학생증은 잘 챙겨왔지만, 쿠폰은 집에 두고 왔습니다. 지호는 무료 팝콘을 받을 수 있을까요?
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button onclick="checkQuiz(3, false, this)" class="entry-block-green p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              받을 수 있다 (True)
+            </button>
+            <button onclick="checkQuiz(3, true, this)" class="entry-block-red p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              받을 수 없다 (False)
+            </button>
+          </div>
+          <div id="q3-feedback" class="hidden"></div>
+          <div id="q3-next-btn-box" class="teacher-only text-right pt-2">
+            <button onclick="showQuizCard(4)" class="entry-block-purple font-black px-6 py-3 rounded-xl text-base btn-3d">
+              다음 퀴즈 풀기 (4/5) ➡️
+            </button>
+          </div>
+        </div>
+
+        <!-- Q4 카드 -->
+        <div id="q-card-4" class="hidden bg-emerald-50/60 border-4 border-emerald-200 rounded-3xl p-6 md:p-8 space-y-6">
+          <h3 class="text-2xl md:text-3xl font-black text-gray-800 leading-snug [word-break:keep-all]">
+            Q4. 학교 도서관은 학생증이나 스마트폰 앱 바코드가 있어야 책을 대출할 수 있습니다. 수현이는 학생증 카드는 잃어버렸지만, 스마트폰 앱 바코드는 있습니다. 수현이는 도서관에서 책을 빌릴 수 있을까요?
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button onclick="checkQuiz(4, true, this)" class="entry-block-green p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              빌릴 수 있다 (True)
+            </button>
+            <button onclick="checkQuiz(4, false, this)" class="entry-block-red p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              빌릴 수 없다 (False)
+            </button>
+          </div>
+          <div id="q4-feedback" class="hidden"></div>
+          <div id="q4-next-btn-box" class="teacher-only text-right pt-2">
+            <button onclick="showQuizCard(5)" class="entry-block-purple font-black px-6 py-3 rounded-xl text-base btn-3d">
+              다음 퀴즈 풀기 (5/5) ➡️
+            </button>
+          </div>
+        </div>
+
+        <!-- Q5 카드 -->
+        <div id="q-card-5" class="hidden bg-emerald-50/60 border-4 border-emerald-200 rounded-3xl p-6 md:p-8 space-y-6">
+          <h3 class="text-2xl md:text-3xl font-black text-gray-800 leading-snug [word-break:keep-all]">
+            Q5. 체육 선생님께서 "오늘 비가 오지 않으면 운동장에서 축구를 하겠다"고 약속하셨습니다. 그런데 창밖을 보니 비가 내리고 있습니다. 오늘은 운동장에서 축구를 할 수 있을까요?
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button onclick="checkQuiz(5, false, this)" class="entry-block-green p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              할 수 있다 (True)
+            </button>
+            <button onclick="checkQuiz(5, true, this)" class="entry-block-red p-5 rounded-2xl text-xl font-black text-center btn-3d">
+              할 수 없다 (False)
+            </button>
+          </div>
+          <div id="q5-feedback" class="hidden"></div>
+          <div id="q5-next-btn-box" class="teacher-only text-right pt-2">
+            <button onclick="finishStage1()" class="entry-block-purple font-black px-6 py-3 rounded-xl text-base btn-3d">
+              퀴즈 완주 결과 확인하기 🎉
+            </button>
+          </div>
+        </div>
+
+        <!-- Stage 1 완주 성공 상자 -->
+        <div id="stage1-success-box" class="hidden bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-3xl p-8 text-center space-y-4 animate-pop">
+          <div class="text-5xl">🏆</div>
+          <h3 class="text-2xl md:text-3xl font-black">동기 유발 퀴즈 5문항 모두 완주!</h3>
+          <p class="text-lg opacity-90 font-bold">참과 거짓, 그리고 연산의 핵심 개념 감을 완벽히 잡으셨네요!</p>
+          <div class="pt-2 teacher-only">
+            <button onclick="goToStage(2)" class="entry-block-yellow font-black text-amber-950 px-8 py-4 rounded-2xl text-xl btn-3d">
+              🚀 2단계 학습 목표 확인하러 가기 ➡️
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- STAGE 2: 학습 목표 -->
+    <main id="stage-2" class="stage-content hidden space-y-6">
+      <div class="bg-white rounded-3xl p-6 md:p-8 border-4 border-emerald-100 shadow-sm space-y-6">
+        
+        <div class="flex justify-between items-center">
+          <span class="bg-[#00D2D3] text-white font-black px-4 py-1.5 rounded-full text-sm inline-block">STAGE 02</span>
+          <h2 class="text-2xl md:text-3xl font-black text-gray-800">🎯 이번 시간 학습 목표</h2>
+        </div>
+
+        <div class="space-y-4">
+          <!-- 목표 1 -->
+          <div id="goal-card-1" class="bg-purple-50 border-4 border-purple-200 rounded-3xl p-6 md:p-8 animate-pop">
+            <div class="flex items-start gap-4">
+              <span class="bg-[#A55EEA] text-white font-black text-xl px-4 py-2 rounded-2xl shrink-0">01</span>
+              <p class="text-xl md:text-2xl font-bold text-gray-800 leading-relaxed pt-1 [word-break:keep-all]">
+                산술 연산자, 비교 연산자의 종류와 개념을 이해하고, 이를 활용하여 문제를 해결하는 프로그램을 작성할 수 있다.
+              </p>
+            </div>
+          </div>
+
+          <!-- 목표 2 -->
+          <div id="goal-card-2" class="hidden bg-purple-50 border-4 border-purple-200 rounded-3xl p-6 md:p-8 animate-pop">
+            <div class="flex items-start gap-4">
+              <span class="bg-[#A55EEA] text-white font-black text-xl px-4 py-2 rounded-2xl shrink-0">02</span>
+              <p class="text-xl md:text-2xl font-bold text-gray-800 leading-relaxed pt-1 [word-break:keep-all]">
+                논리 연산자의 종류와 개념을 이해하고, 이를 활용하여 문제를 해결하는 프로그램을 작성할 수 있다.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-center pt-4 teacher-only">
+          <button id="btn-next-goal" onclick="revealNextGoal()" class="entry-block-cyan font-black px-8 py-3.5 rounded-2xl text-lg btn-3d">
+            다음 학습 목표 확인하기 (2/2) ➡️
+          </button>
+          <button id="btn-go-stage3" onclick="goToStage(3)" class="hidden entry-block-purple font-black px-8 py-3.5 rounded-2xl text-lg btn-3d animate-pop">
+            🚀 3단계 산술 연산 학습 시작하기 GO!
+          </button>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- STAGE 3: 산술 연산자 -->
+    <main id="stage-3" class="stage-content hidden space-y-6">
+      <div class="bg-white rounded-3xl p-6 md:p-8 border-4 border-emerald-100 shadow-sm space-y-6">
+        
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <span class="bg-[#FFC048] text-amber-950 font-black px-4 py-1.5 rounded-full text-sm inline-block mb-2">STAGE 03</span>
+            <h2 class="text-2xl md:text-3xl font-black text-gray-800">➕ 3. 산술 연산자</h2>
+          </div>
+        </div>
+
+        <div class="bg-[#FFF9E6] border-4 border-[#FFC048] rounded-3xl p-6 md:p-8 shadow-sm">
+          <div class="flex items-start gap-4">
+            <span class="text-3xl md:text-4xl">💡</span>
+            <div>
+              <h3 class="text-xl md:text-2xl font-black text-amber-950 mb-2">산술 연산이란?</h3>
+              <p class="text-lg md:text-xl font-bold text-gray-800 leading-relaxed">
+                <span class="bg-amber-200 px-2 py-0.5 rounded-lg text-amber-950">덧셈, 뺄셈, 곱셈, 나눗셈</span> 등 <span class="text-amber-700 underline underline-offset-4 decoration-amber-400 font-black">수치를 계산하기 위한 연산</span>입니다.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1차 산술 블록 -->
+        <div id="arith-group-1" class="hidden bg-amber-50/70 border-4 border-amber-200 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm animate-pop">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <h3 class="text-xl md:text-2xl font-black text-amber-950 flex items-center gap-2">
+              <span>🧩</span> 기본 사칙연산 블록
+            </h3>
+            <span class="text-xs md:text-sm font-bold text-amber-900 bg-amber-200 px-3 py-1 rounded-full animate-bounce-slow">
+              💡 블록 안의 숫자를 클릭해서 변경해보세요!
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <!-- 덧셈 -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-amber-200 flex flex-col xl:flex-row items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">덧셈 (+)</span>
+              <div class="bg-[#FF9500] px-3.5 py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 shadow-md border-2 border-[#D97E00] hover:scale-105 transition-transform">
+                <input type="number" value="10" id="arith-add-1" oninput="calcBlock('add')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-xl px-0.5">+</span>
+                <input type="number" value="10" id="arith-add-2" oninput="calcBlock('add')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-lg px-0.5">=</span>
+                <span id="res-add" class="bg-[#D97E00] text-white font-black px-3 py-1 rounded-full text-base min-w-[36px] text-center">20</span>
+              </div>
+            </div>
+
+            <!-- 뺄셈 -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-amber-200 flex flex-col xl:flex-row items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">뺄셈 (-)</span>
+              <div class="bg-[#FF9500] px-3.5 py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 shadow-md border-2 border-[#D97E00] hover:scale-105 transition-transform">
+                <input type="number" value="10" id="arith-sub-1" oninput="calcBlock('sub')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-xl px-0.5">-</span>
+                <input type="number" value="10" id="arith-sub-2" oninput="calcBlock('sub')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-lg px-0.5">=</span>
+                <span id="res-sub" class="bg-[#D97E00] text-white font-black px-3 py-1 rounded-full text-base min-w-[36px] text-center">0</span>
+              </div>
+            </div>
+
+            <!-- 곱셈 -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-amber-200 flex flex-col xl:flex-row items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">곱셈 (x)</span>
+              <div class="bg-[#FF9500] px-3.5 py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 shadow-md border-2 border-[#D97E00] hover:scale-105 transition-transform">
+                <input type="number" value="10" id="arith-mul-1" oninput="calcBlock('mul')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-xl px-0.5">x</span>
+                <input type="number" value="10" id="arith-mul-2" oninput="calcBlock('mul')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-lg px-0.5">=</span>
+                <span id="res-mul" class="bg-[#D97E00] text-white font-black px-3 py-1 rounded-full text-base min-w-[36px] text-center">100</span>
+              </div>
+            </div>
+
+            <!-- 나눗셈 -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-amber-200 flex flex-col xl:flex-row items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">나눗셈 (/)</span>
+              <div class="bg-[#FF9500] px-3.5 py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 shadow-md border-2 border-[#D97E00] hover:scale-105 transition-transform">
+                <input type="number" value="10" id="arith-div-1" oninput="calcBlock('div')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-xl px-0.5">/</span>
+                <input type="number" value="10" id="arith-div-2" oninput="calcBlock('div')" class="bg-[#FFE600] text-gray-900 font-black w-14 sm:w-16 text-center rounded-full text-base py-1 focus:outline-none focus:ring-2 focus:ring-amber-700 shadow-inner">
+                <span class="text-white font-black text-lg px-0.5">=</span>
+                <span id="res-div" class="bg-[#D97E00] text-white font-black px-3 py-1 rounded-full text-base min-w-[36px] text-center">1</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2차 특수 산술 블록 -->
+        <div id="arith-group-2" class="hidden bg-amber-50/70 border-4 border-amber-200 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm animate-pop">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <h3 class="text-xl md:text-2xl font-black text-amber-950 flex items-center gap-2">
+              <span>🧩</span> 몫, 나머지, 제곱 연산자 블록
+            </h3>
+            <span class="text-xs md:text-sm font-bold text-amber-900 bg-amber-200 px-3 py-1 rounded-full animate-bounce-slow">
+              💡 숫자를 변경하여 몫, 나머지, 제곱 결과를 확인하세요!
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- 몫 -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-amber-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">몫 ( // )</span>
+              <div class="bg-[#FF9500] w-full max-w-[340px] px-3.5 py-2.5 rounded-full flex items-center justify-center gap-1.5 shadow-md border-2 border-[#D97E00]">
+                <input type="number" value="10" id="arith-quot-1" oninput="calcBlock('quot')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                <span class="text-white font-black text-base px-0.5">/</span>
+                <input type="number" value="10" id="arith-quot-2" oninput="calcBlock('quot')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                <span class="text-white font-black text-sm px-0.5">의</span>
+                <span class="bg-[#E65100] text-white font-black px-2.5 py-1 rounded-xl text-xs flex items-center justify-center whitespace-nowrap">몫 ▼</span>
+                <span class="text-white font-black text-sm px-0.5">=</span>
+                <span id="res-quot" class="bg-[#D97E00] text-white font-black px-2.5 py-1 rounded-full text-base min-w-[36px] text-center">1</span>
+              </div>
+            </div>
+
+            <!-- 나머지 -->
+            <div class="bg-white px-2 py-4 rounded-2xl border-2 border-amber-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">나머지 ( % )</span>
+              <div class="bg-[#FF9500] w-full px-2.5 py-2 rounded-full flex items-center justify-center gap-1 shadow-md border-2 border-[#D97E00]">
+                <input type="number" value="10" id="arith-rem-1" oninput="calcBlock('rem')" class="bg-[#FFE600] text-gray-900 font-black w-10 text-center rounded-full text-sm py-1 focus:outline-none shadow-inner">
+                <span class="text-white font-black text-sm">÷</span>
+                <input type="number" value="3" id="arith-rem-2" oninput="calcBlock('rem')" class="bg-[#FFE600] text-gray-900 font-black w-10 text-center rounded-full text-sm py-1 focus:outline-none shadow-inner">
+                <span class="text-white font-black text-xs">의</span>
+                <span class="bg-[#E65100] text-white font-black px-2 py-1 rounded-xl text-xs flex items-center justify-center whitespace-nowrap">나머지 ▼</span>
+                <span class="text-white font-black text-xs">=</span>
+                <span id="res-rem" class="bg-[#D97E00] text-white font-black px-2 py-1 rounded-full text-sm min-w-[28px] text-center">1</span>
+              </div>
+            </div>
+
+            <!-- 제곱 -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-amber-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">제곱 ( ** )</span>
+              <div class="bg-[#FF9500] w-full max-w-[340px] px-3.5 py-2.5 rounded-full flex items-center justify-center gap-1.5 shadow-md border-2 border-[#D97E00]">
+                <input type="number" value="10" id="arith-pow-1" oninput="calcBlock('pow')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                <span class="text-white font-black text-sm px-0.5">의</span>
+                <span class="bg-[#E65100] text-white font-black px-2.5 py-1 rounded-xl text-xs flex items-center justify-center whitespace-nowrap">제곱 ▼</span>
+                <span class="text-white font-black text-sm px-0.5">=</span>
+                <span id="res-pow" class="bg-[#D97E00] text-white font-black px-2.5 py-1 rounded-full text-base min-w-[36px] text-center">100</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-center pt-2 teacher-only">
+          <button id="btn-show-group-1" onclick="revealArithGroup1()" class="entry-block-cyan font-black px-8 py-3.5 rounded-2xl text-lg btn-3d">
+            🧩 엔트리 블록 확인하기 ➡️
+          </button>
+          <button id="btn-show-group-2" onclick="revealArithGroup2()" class="hidden entry-block-cyan font-black px-8 py-3.5 rounded-2xl text-lg btn-3d">
+            🧩 다음: 몫, 나머지, 제곱 블록 확인하기 ➡️
+          </button>
+          <button id="btn-go-stage4" onclick="goToStage(4)" class="hidden entry-block-purple font-black px-8 py-3.5 rounded-2xl text-lg btn-3d animate-pop">
+            🚀 4단계 비교 연산 학습 시작하기 GO!
+          </button>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- STAGE 4: 비교 연산자 -->
+    <main id="stage-4" class="stage-content hidden space-y-6">
+      <div class="bg-white rounded-3xl p-6 md:p-8 border-4 border-emerald-100 shadow-sm space-y-6">
+        
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <span class="bg-[#00D2D3] text-white font-black px-4 py-1.5 rounded-full text-sm inline-block mb-2">STAGE 04</span>
+            <h2 class="text-2xl md:text-3xl font-black text-gray-800">🔍 4. 비교 연산자</h2>
+          </div>
+        </div>
+
+        <div class="bg-[#E6FFFA] border-4 border-[#00D2D3] rounded-3xl p-6 md:p-8 shadow-sm">
+          <div class="flex items-start gap-4">
+            <span class="text-3xl md:text-4xl">💡</span>
+            <div>
+              <h3 class="text-xl md:text-2xl font-black text-[#006064] mb-2">비교 연산이란?</h3>
+              <p class="text-lg md:text-xl font-bold text-gray-800 leading-relaxed [word-break:keep-all]">
+                <span class="bg-teal-200 px-2 py-0.5 rounded-lg text-teal-950 inline-block">두 값의 크기를 비교하는 연산</span>이며, 연산 결과는 오직 참(True) 또는 거짓(False)으로 나타납니다.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div id="comp-blocks-container" class="hidden bg-blue-50/70 border-4 border-blue-200 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm animate-pop">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <h3 class="text-xl md:text-2xl font-black text-blue-950 flex items-center gap-2">
+              <span>🧩</span> 엔트리 비교 연산자 블록
+            </h3>
+            <span class="text-xs md:text-sm font-bold text-blue-900 bg-blue-200 px-3 py-1 rounded-full animate-bounce-slow">
+              💡 숫자를 자유롭게 바꿔 True/False 결과를 확인해보세요!
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <!-- 같다 (=) -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-blue-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">같다 (=)</span>
+              <div class="flex items-center gap-2">
+                <div class="entry-hex-block px-5 py-2 flex items-center gap-1.5 shadow-md">
+                  <input type="number" value="10" id="comp-eq-1" oninput="calcCompBlock('eq')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                  <div class="bg-[#1E2B88] text-white font-black text-xl px-2 py-0.5 rounded text-center flex items-center justify-center">=</div>
+                  <input type="number" value="10" id="comp-eq-2" oninput="calcCompBlock('eq')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                </div>
+                <span id="res-comp-eq" class="bg-[#00E676] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm">True</span>
+              </div>
+            </div>
+
+            <!-- 같지 않다 (!=) -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-blue-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">같지 않다 (!=)</span>
+              <div class="flex items-center gap-2">
+                <div class="entry-hex-block px-5 py-2 flex items-center gap-1.5 shadow-md">
+                  <input type="number" value="10" id="comp-neq-1" oninput="calcCompBlock('neq')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                  <div class="bg-[#1E2B88] text-white font-black text-xl px-2 py-0.5 rounded text-center flex items-center justify-center">!=</div>
+                  <input type="number" value="10" id="comp-neq-2" oninput="calcCompBlock('neq')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                </div>
+                <span id="res-comp-neq" class="bg-[#FF5252] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm">False</span>
+              </div>
+            </div>
+
+            <!-- 크다 (>) -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-blue-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">크다 (&gt;)</span>
+              <div class="flex items-center gap-2">
+                <div class="entry-hex-block px-5 py-2 flex items-center gap-1.5 shadow-md">
+                  <input type="number" value="10" id="comp-gt-1" oninput="calcCompBlock('gt')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                  <div class="bg-[#1E2B88] text-white font-black text-xl px-2 py-0.5 rounded text-center flex items-center justify-center">&gt;</div>
+                  <input type="number" value="10" id="comp-gt-2" oninput="calcCompBlock('gt')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                </div>
+                <span id="res-comp-gt" class="bg-[#FF5252] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm">False</span>
+              </div>
+            </div>
+
+            <!-- 작다 (<) -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-blue-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">작다 (&lt;)</span>
+              <div class="flex items-center gap-2">
+                <div class="entry-hex-block px-5 py-2 flex items-center gap-1.5 shadow-md">
+                  <input type="number" value="10" id="comp-lt-1" oninput="calcCompBlock('lt')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                  <div class="bg-[#1E2B88] text-white font-black text-xl px-2 py-0.5 rounded text-center flex items-center justify-center">&lt;</div>
+                  <input type="number" value="10" id="comp-lt-2" oninput="calcCompBlock('lt')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                </div>
+                <span id="res-comp-lt" class="bg-[#FF5252] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm">False</span>
+              </div>
+            </div>
+
+            <!-- 크거나 같다 (>=) -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-blue-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">크거나 같다 (&ge;)</span>
+              <div class="flex items-center gap-2">
+                <div class="entry-hex-block px-5 py-2 flex items-center gap-1.5 shadow-md">
+                  <input type="number" value="10" id="comp-gte-1" oninput="calcCompBlock('gte')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                  <div class="bg-[#1E2B88] text-white font-black text-xl px-2 py-0.5 rounded text-center flex items-center justify-center">&ge;</div>
+                  <input type="number" value="10" id="comp-gte-2" oninput="calcCompBlock('gte')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                </div>
+                <span id="res-comp-gte" class="bg-[#00E676] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm">True</span>
+              </div>
+            </div>
+
+            <!-- 작거나 같다 (<=) -->
+            <div class="bg-white p-4 rounded-2xl border-2 border-blue-200 flex flex-col items-center justify-between gap-3 shadow-sm">
+              <span class="font-black text-lg text-gray-800">작거나 같다 (&le;)</span>
+              <div class="flex items-center gap-2">
+                <div class="entry-hex-block px-5 py-2 flex items-center gap-1.5 shadow-md">
+                  <input type="number" value="10" id="comp-lte-1" oninput="calcCompBlock('lte')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                  <div class="bg-[#1E2B88] text-white font-black text-xl px-2 py-0.5 rounded text-center flex items-center justify-center">&le;</div>
+                  <input type="number" value="10" id="comp-lte-2" oninput="calcCompBlock('lte')" class="bg-[#FFE600] text-gray-900 font-black w-12 text-center rounded-full text-base py-1 focus:outline-none shadow-inner">
+                </div>
+                <span id="res-comp-lte" class="bg-[#00E676] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm">True</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-center pt-2 teacher-only">
+          <button id="btn-show-comp" onclick="revealCompBlocks()" class="entry-block-cyan font-black px-8 py-3.5 rounded-2xl text-lg btn-3d">
+            🧩 엔트리 블록 확인하기 ➡️
+          </button>
+          <button id="btn-go-stage5" onclick="goToStage(5)" class="hidden entry-block-purple font-black px-8 py-3.5 rounded-2xl text-lg btn-3d animate-pop">
+            🚀 5단계 논리 연산 학습 시작하기 GO!
+          </button>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- STAGE 5: 논리 연산자 -->
+    <main id="stage-5" class="stage-content hidden space-y-6">
+      <div class="bg-white rounded-3xl p-6 md:p-8 border-4 border-purple-200 shadow-sm space-y-6">
+        
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <span class="bg-[#A55EEA] text-white font-black px-4 py-1.5 rounded-full text-sm inline-block mb-2">STAGE 05 (MAIN)</span>
+            <h2 class="text-2xl md:text-3xl font-black text-gray-800">⚡ 5. 논리 연산자</h2>
+          </div>
+        </div>
+
+        <div class="bg-[#F8F5FF] border-4 border-[#A55EEA] rounded-3xl p-6 md:p-8 shadow-sm">
+          <div class="flex items-start gap-4">
+            <span class="text-3xl md:text-4xl">💡</span>
+            <div>
+              <h3 class="text-xl md:text-2xl font-black text-purple-950 mb-2">논리 연산이란?</h3>
+              <p class="text-lg md:text-xl font-bold text-gray-800 leading-relaxed">
+                <span class="bg-purple-200 px-2 py-0.5 rounded-lg text-purple-950">여러 조건을 결합</span>하여 판단을 수행하는 연산입니다.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div id="logic-blocks-container" class="hidden space-y-8 animate-pop">
+          <div class="bg-blue-50/70 border-4 border-blue-200 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h3 class="text-xl md:text-2xl font-black text-blue-950 flex items-center gap-2">
+                <span>🧩</span> 엔트리 논리 연산자 블록
+              </h3>
+            </div>
+
+            <!-- AND, OR, NOT 선택 탭 버튼 -->
+            <div class="flex flex-wrap justify-center gap-3 pt-2">
+              <button id="tab-sim-and" onclick="switchLogicSim('and')" class="sim-tab bg-[#A55EEA] text-white font-black px-5 py-2.5 rounded-2xl text-base shadow btn-3d">
+                🍿 1) AND (그리고)
+              </button>
+              <button id="tab-sim-or" onclick="switchLogicSim('or')" class="sim-tab bg-white text-gray-700 font-bold px-5 py-2.5 rounded-2xl text-base border-2 border-purple-300 hover:bg-purple-50 btn-3d">
+                📚 2) OR (또는)
+              </button>
+              <button id="tab-sim-not" onclick="switchLogicSim('not')" class="sim-tab bg-white text-gray-700 font-bold px-5 py-2.5 rounded-2xl text-base border-2 border-purple-300 hover:bg-purple-50 btn-3d">
+                ⚽ 3) NOT (아니다)
+              </button>
+            </div>
+
+            <div class="mt-4">
+              <!-- AND -->
+              <div id="sim-and-content" class="bg-white p-6 md:p-8 rounded-3xl border-2 border-blue-200 flex flex-col items-center justify-between gap-6 shadow-sm max-w-2xl mx-auto animate-pop">
+                <div class="text-center space-y-1">
+                  <span class="bg-[#A55EEA] text-white font-black px-4 py-1.5 rounded-full text-xs inline-block">Q3 팝콘을 받을 수 있을까?</span>
+                  <h4 class="font-black text-2xl text-gray-800 pt-1">1) AND (그리고) 블록</h4>
+                </div>
+                
+                <div class="entry-hex-block px-6 py-4 flex items-center justify-center gap-2 md:gap-3 shadow-lg">
+                  <button id="subhex-pop-1" onclick="toggleQuizHex('pop-1')" class="entry-subhex-block px-4 py-2 text-white font-black text-base md:text-lg shadow whitespace-nowrap">학생증: 참</button>
+                  <div class="bg-[#1E2B88] text-white font-black text-sm md:text-base px-3 py-1.5 rounded flex items-center gap-1 shadow-inner whitespace-nowrap">그리고 ▼</div>
+                  <button id="subhex-pop-2" onclick="toggleQuizHex('pop-2')" class="entry-subhex-block px-4 py-2 text-white font-black text-base md:text-lg shadow whitespace-nowrap">쿠폰: 참</button>
+                </div>
+
+                <div id="res-quiz-and" class="w-full bg-[#00E676] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop">
+                  🍿 True! 무료 팝콘 획득 성공!
+                </div>
+              </div>
+
+              <!-- OR -->
+              <div id="sim-or-content" class="hidden bg-white p-6 md:p-8 rounded-3xl border-2 border-blue-200 flex flex-col items-center justify-between gap-6 shadow-sm max-w-2xl mx-auto animate-pop">
+                <div class="text-center space-y-1">
+                  <span class="bg-[#00D2D3] text-white font-black px-4 py-1.5 rounded-full text-xs inline-block">Q4 책을 빌릴 수 있을까?</span>
+                  <h4 class="font-black text-2xl text-gray-800 pt-1">2) OR (또는) 블록</h4>
+                </div>
+                
+                <div class="entry-hex-block px-6 py-4 flex items-center justify-center gap-2 md:gap-3 shadow-lg">
+                  <button id="subhex-lib-1" onclick="toggleQuizHex('lib-1')" class="entry-subhex-block px-4 py-2 text-white font-black text-base md:text-lg shadow whitespace-nowrap">학생증: 참</button>
+                  <div class="bg-[#1E2B88] text-white font-black text-sm md:text-base px-3 py-1.5 rounded flex items-center gap-1 shadow-inner whitespace-nowrap">또는 ▼</div>
+                  <button id="subhex-lib-2" onclick="toggleQuizHex('lib-2')" class="entry-subhex-block px-4 py-2 text-white font-black text-base md:text-lg shadow whitespace-nowrap text-rose-300">바코드: 거짓</button>
+                </div>
+
+                <div id="res-quiz-or" class="w-full bg-[#00E676] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop">
+                  ⭕ True! 도서관 책 대출 가능!
+                </div>
+              </div>
+
+              <!-- NOT -->
+              <div id="sim-not-content" class="hidden bg-white p-6 md:p-8 rounded-3xl border-2 border-blue-200 flex flex-col items-center justify-between gap-6 shadow-sm max-w-2xl mx-auto animate-pop">
+                <div class="text-center space-y-1">
+                  <span class="bg-purple-600 text-white font-black px-4 py-1.5 rounded-full text-xs inline-block">Q5 축구를 할 수 있을까?</span>
+                  <h4 class="font-black text-2xl text-gray-800 pt-1">3) NOT (아니다) 블록</h4>
+                </div>
+                
+                <div class="entry-hex-block px-6 py-4 flex items-center justify-center gap-3 shadow-lg">
+                  <button id="subhex-soc-1" onclick="toggleQuizHex('soc-1')" class="entry-subhex-block px-4 py-2 text-white font-black text-base md:text-lg shadow whitespace-nowrap">비가 온다: 참</button>
+                  <span class="text-white font-black text-base md:text-lg px-2 whitespace-nowrap">(이)가 아니다</span>
+                </div>
+
+                <div id="res-quiz-not" class="w-full bg-[#FF5252] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop">
+                  ☔ False! 비가 내려 축구 취소!
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- 진리표 -->
+        <div id="truth-tables-container" class="hidden space-y-6 animate-pop">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <h3 class="text-xl md:text-2xl font-black text-purple-950 flex items-center gap-2">
+              <span>📊</span> 논리 연산자 진리표
+            </h3>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- AND -->
+            <div class="bg-white border-4 border-indigo-200 rounded-3xl p-5 shadow-sm space-y-4">
+              <div class="text-center pb-2 border-b-2 border-indigo-100">
+                <span class="bg-[#A55EEA] text-white font-black px-3 py-1 rounded-full text-xs">그리고</span>
+                <h4 class="text-xl font-black text-indigo-950 mt-1">1) AND 진리표</h4>
+              </div>
+              <div class="overflow-hidden rounded-2xl border-2 border-[#94B8F0]">
+                <table class="w-full text-center border-collapse">
+                  <thead>
+                    <tr class="bg-[#DCEBFF] text-[#0F294A] font-black text-base border-b-2 border-[#94B8F0]">
+                      <th class="py-3 px-2 border-r border-[#94B8F0]">A</th>
+                      <th class="py-3 px-2 border-r border-[#94B8F0]">B</th>
+                      <th class="py-3 px-2">A AND B</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-[#94B8F0] font-black text-base text-[#0F294A]">
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5">False</td></tr>
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5">False</td></tr>
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5">False</td></tr>
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5 bg-[#FFE2E2] text-rose-950 font-black">True</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- OR -->
+            <div class="bg-white border-4 border-cyan-200 rounded-3xl p-5 shadow-sm space-y-4">
+              <div class="text-center pb-2 border-b-2 border-cyan-100">
+                <span class="bg-[#00D2D3] text-white font-black px-3 py-1 rounded-full text-xs">또는</span>
+                <h4 class="text-xl font-black text-cyan-950 mt-1">2) OR 진리표</h4>
+              </div>
+              <div class="overflow-hidden rounded-2xl border-2 border-[#94B8F0]">
+                <table class="w-full text-center border-collapse">
+                  <thead>
+                    <tr class="bg-[#DCEBFF] text-[#0F294A] font-black text-base border-b-2 border-[#94B8F0]">
+                      <th class="py-3 px-2 border-r border-[#94B8F0]">A</th>
+                      <th class="py-3 px-2 border-r border-[#94B8F0]">B</th>
+                      <th class="py-3 px-2">A OR B</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-[#94B8F0] font-black text-base text-[#0F294A]">
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5">False</td></tr>
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5 bg-[#FFE2E2] text-rose-950 font-black">True</td></tr>
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5 border-r border-[#94B8F0]">False</td><td class="py-2.5 bg-[#FFE2E2] text-rose-950 font-black">True</td></tr>
+                    <tr class="bg-white"><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5 border-r border-[#94B8F0]">True</td><td class="py-2.5 bg-[#FFE2E2] text-rose-950 font-black">True</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- NOT -->
+            <div class="bg-white border-4 border-purple-200 rounded-3xl p-5 shadow-sm space-y-4">
+              <div class="text-center pb-2 border-b-2 border-purple-100">
+                <span class="bg-purple-600 text-white font-black px-3 py-1 rounded-full text-xs">아니다</span>
+                <h4 class="text-xl font-black text-purple-950 mt-1">3) NOT 진리표</h4>
+              </div>
+              <div class="overflow-hidden rounded-2xl border-2 border-[#94B8F0]">
+                <table class="w-full text-center border-collapse">
+                  <thead>
+                    <tr class="bg-[#DCEBFF] text-[#0F294A] font-black text-base border-b-2 border-[#94B8F0]">
+                      <th class="py-3 px-2 border-r border-[#94B8F0]">A</th>
+                      <th class="py-3 px-2">NOT A</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-[#94B8F0] font-black text-base text-[#0F294A]">
+                    <tr class="bg-white"><td class="py-3 border-r border-[#94B8F0]">False</td><td class="py-3 bg-[#FFE2E2] text-rose-950 font-black">True</td></tr>
+                    <tr class="bg-white"><td class="py-3 border-r border-[#94B8F0]">True</td><td class="py-3">False</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="text-center pt-2 teacher-only">
+          <button id="btn-show-logic-sim" onclick="revealLogicBlocks()" class="entry-block-cyan font-black px-8 py-3.5 rounded-2xl text-lg btn-3d">
+            🧩 엔트리 블록 확인하기 ➡️
+          </button>
+          <button id="btn-show-truth" onclick="revealTruthTables()" class="hidden entry-block-purple font-black px-8 py-3.5 rounded-2xl text-lg btn-3d animate-pop">
+            📊 AND, OR, NOT 진리표 확인하기 ➡️
+          </button>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- 하단 네비게이션 컨트롤러 -->
+    <footer class="mt-8 flex justify-between items-center bg-white p-4 rounded-2xl border-2 border-emerald-100 shadow-sm">
+      <button onclick="prevStage()" id="prev-btn" class="teacher-only bg-gray-200 hover:bg-gray-300 text-gray-700 font-black px-6 py-3 rounded-xl text-sm transition btn-3d">
+        ⬅️ 이전 단계
+      </button>
+
+      <div class="text-xs md:text-sm font-bold text-gray-500 mx-auto">
+        <span id="current-stage-num">1</span> / 5 STAGE
+      </div>
+
+      <button onclick="nextStage()" id="next-btn" class="teacher-only entry-block-green font-black px-7 py-3 rounded-xl text-sm transition btn-3d">
+        다음 단계 GO ➡️
+      </button>
+    </footer>
+
+  </div>
+
+  <!-- JavaScript logic & Web Audio 효과음 -->
+  <script>
+    // 교사 비밀번호 설정 (필요시 이 부분을 변경하세요)
+    const TEACHER_PASSWORD = "261112open";
+
+    class AudioEffects {
+      constructor() { this.ctx = null; }
+      init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+      playClick() {
+        try {
+          this.init();
+          const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+          osc.type = 'sine'; osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.05);
+          gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.05);
+          osc.connect(gain); gain.connect(this.ctx.destination);
+          osc.start(); osc.stop(this.ctx.currentTime + 0.05);
+        } catch(e){}
+      }
+      playCorrect() {
+        try {
+          this.init();
+          const now = this.ctx.currentTime;
+          [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+            const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(f, now + i * 0.08);
+            gain.gain.setValueAtTime(0.2, now + i * 0.08);
+            gain.gain.linearRampToValueAtTime(0.01, now + i * 0.08 + 0.15);
+            osc.connect(gain); gain.connect(this.ctx.destination);
+            osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.15);
+          });
+        } catch(e){}
+      }
+      playWrong() {
+        try {
+          this.init();
+          const now = this.ctx.currentTime, osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+          osc.type = 'sawtooth'; osc.frequency.setValueAtTime(220, now);
+          osc.frequency.linearRampToValueAtTime(140, now + 0.2);
+          gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+          osc.connect(gain); gain.connect(this.ctx.destination);
+          osc.start(now); osc.stop(now + 0.2);
+        } catch(e){}
+      }
+    }
+
+    const sound = new AudioEffects();
+
+    // 동기화 상태 데이터
+    let isTeacher = false;
+    let roomCode = "101";
+    let mqttClient = null;
+
+    let state = {
+      currentStage: 1,
+      quizStep: 1,
+      stage2Step: 1,
+      stage3Step: 0,
+      stage4Step: 0,
+      stage5Step: 0,
+      logicTab: 'and'
+    };
+
+    // MQTT 실시간 동기화 연결
+    function connectMQTT() {
+      const roomInput = document.getElementById('room-code-input');
+      roomCode = roomInput ? (roomInput.value.trim() || '101') : '101';
+      const topic = `school_lesson_room_${roomCode}`;
+
+      if (mqttClient) {
+        try { mqttClient.end(true); } catch(e){}
+      }
+
+      const statusText = document.getElementById('mqtt-status-text');
+      if (statusText) statusText.innerText = '연결 중...';
+
+      if (typeof mqtt === 'undefined') {
+        if (statusText) statusText.innerText = '인터넷 연결 확인 필요';
+        return;
+      }
+
+      try {
+        mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+          clientId: 'user_' + Math.random().toString(16).substr(2, 8),
+          keepalive: 60,
+          reconnectPeriod: 2000
+        });
+
+        mqttClient.on('connect', () => {
+          if (statusText) statusText.innerText = `🟢 온라인 (방: ${roomCode})`;
+          mqttClient.subscribe(topic);
+          if (isTeacher) broadcastState();
+        });
+
+        mqttClient.on('message', (t, message) => {
+          if (!isTeacher) { // 학생은 교사의 신호를 받아 화면 동기화
+            try {
+              const newState = JSON.parse(message.toString());
+              state = newState;
+              renderStateUI();
+            } catch(e){}
+          }
+        });
+
+        mqttClient.on('error', () => {
+          if (statusText) statusText.innerText = '⚠️ 연결 재시도 중...';
+        });
+
+        mqttClient.on('offline', () => {
+          if (statusText) statusText.innerText = '⚪ 오프라인 상태';
+        });
+      } catch(e) {
+        if (statusText) statusText.innerText = '연결 실패';
+      }
+    }
+
+    function broadcastState() {
+      if (isTeacher && mqttClient && mqttClient.connected) {
+        const topic = `school_lesson_room_${roomCode}`;
+        mqttClient.publish(topic, JSON.stringify(state));
+      }
+    }
+
+    // 교사 권한 토글 (비밀번호 입력 힌트가 노출되지 않도록 빈칸 처리)
+    function toggleTeacherMode() {
+      if (isTeacher) {
+        isTeacher = false;
+        alert("학생 모드로 전환되었습니다.");
+      } else {
+        const pwd = prompt("교사 비밀번호를 입력하세요:", "");
+        if (pwd === TEACHER_PASSWORD) {
+          isTeacher = true;
+          alert("교사 모드로 로그인되었습니다. 이제 교사가 화면을 이동하면 접속 중인 학생 화면이 자동 제어됩니다.");
+        } else if (pwd !== null) {
+          alert("비밀번호가 틀렸습니다.");
+        }
+      }
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    // UI 렌더링 함수
+    function renderStateUI() {
+      // 1. Stage 전환
+      for (let i = 1; i <= 5; i++) {
+        const stageEl = document.getElementById(`stage-${i}`);
+        const badgeEl = document.getElementById(`badge-${i}`);
+        if (stageEl) {
+          if (i === state.currentStage) stageEl.classList.remove('hidden');
+          else stageEl.classList.add('hidden');
+        }
+        if (badgeEl) {
+          if (i === state.currentStage) badgeEl.classList.add('hud-tab-active');
+          else badgeEl.classList.remove('hud-tab-active');
+        }
+      }
+
+      const stageNumEl = document.getElementById('current-stage-num');
+      if (stageNumEl) stageNumEl.innerText = state.currentStage;
+
+      // 2. STAGE 1 세부 단계
+      if (state.currentStage === 1) {
+        if (state.quizStep === 'success') {
+          for (let i = 1; i <= 5; i++) document.getElementById(`q-card-${i}`)?.classList.add('hidden');
+          document.getElementById('stage1-success-box')?.classList.remove('hidden');
+          const indicator = document.getElementById('quiz-step-indicator');
+          if (indicator) indicator.innerText = `5 / 5 완료!`;
+        } else {
+          document.getElementById('stage1-success-box')?.classList.add('hidden');
+          for (let i = 1; i <= 5; i++) {
+            const card = document.getElementById(`q-card-${i}`);
+            if (card) {
+              if (i === state.quizStep) card.classList.remove('hidden');
+              else card.classList.add('hidden');
+            }
+          }
+          const indicator = document.getElementById('quiz-step-indicator');
+          if (indicator) indicator.innerText = `${state.quizStep} / 5`;
+        }
+      }
+
+      // 3. STAGE 2 세부 단계
+      if (state.currentStage === 2) {
+        const goal2 = document.getElementById('goal-card-2');
+        const btnNext = document.getElementById('btn-next-goal');
+        const btnGo3 = document.getElementById('btn-go-stage3');
+
+        if (state.stage2Step === 2) {
+          goal2?.classList.remove('hidden');
+          btnNext?.classList.add('hidden');
+          btnGo3?.classList.remove('hidden');
+        } else {
+          goal2?.classList.add('hidden');
+          btnNext?.classList.remove('hidden');
+          btnGo3?.classList.add('hidden');
+        }
+      }
+
+      // 4. STAGE 3 세부 단계
+      if (state.currentStage === 3) {
+        const group1 = document.getElementById('arith-group-1');
+        const group2 = document.getElementById('arith-group-2');
+        const btnG1 = document.getElementById('btn-show-group-1');
+        const btnG2 = document.getElementById('btn-show-group-2');
+        const btnGo4 = document.getElementById('btn-go-stage4');
+
+        if (state.stage3Step === 0) {
+          group1?.classList.add('hidden'); group2?.classList.add('hidden');
+          btnG1?.classList.remove('hidden'); btnG2?.classList.add('hidden'); btnGo4?.classList.add('hidden');
+        } else if (state.stage3Step === 1) {
+          group1?.classList.remove('hidden'); group2?.classList.add('hidden');
+          btnG1?.classList.add('hidden'); btnG2?.classList.remove('hidden'); btnGo4?.classList.add('hidden');
+        } else if (state.stage3Step === 2) {
+          group1?.classList.add('hidden'); group2?.classList.remove('hidden');
+          btnG1?.classList.add('hidden'); btnG2?.classList.add('hidden'); btnGo4?.classList.remove('hidden');
+        }
+      }
+
+      // 5. STAGE 4 세부 단계
+      if (state.currentStage === 4) {
+        const container = document.getElementById('comp-blocks-container');
+        const btnShow = document.getElementById('btn-show-comp');
+        const btnGo5 = document.getElementById('btn-go-stage5');
+
+        if (state.stage4Step === 1) {
+          container?.classList.remove('hidden');
+          btnShow?.classList.add('hidden');
+          btnGo5?.classList.remove('hidden');
+        } else {
+          container?.classList.add('hidden');
+          btnShow?.classList.remove('hidden');
+          btnGo5?.classList.add('hidden');
+        }
+      }
+
+      // 6. STAGE 5 세부 단계
+      if (state.currentStage === 5) {
+        const simContainer = document.getElementById('logic-blocks-container');
+        const ttContainer = document.getElementById('truth-tables-container');
+        const btnShowSim = document.getElementById('btn-show-logic-sim');
+        const btnShowTruth = document.getElementById('btn-show-truth');
+
+        if (state.stage5Step === 1) {
+          simContainer?.classList.remove('hidden'); ttContainer?.classList.add('hidden');
+          btnShowSim?.classList.add('hidden'); btnShowTruth?.classList.remove('hidden');
+          switchLogicSimUI(state.logicTab);
+        } else if (state.stage5Step === 2) {
+          simContainer?.classList.add('hidden'); ttContainer?.classList.remove('hidden');
+          btnShowSim?.classList.add('hidden'); btnShowTruth?.classList.add('hidden');
+        } else {
+          simContainer?.classList.add('hidden'); ttContainer?.classList.add('hidden');
+          btnShowSim?.classList.remove('hidden'); btnShowTruth?.classList.add('hidden');
+        }
+      }
+
+      // 7. 역할별 UI 표시/숨김 처리
+      const teacherElements = document.querySelectorAll('.teacher-only');
+      teacherElements.forEach(el => {
+        if (isTeacher) el.classList.remove('hidden-by-role');
+        else el.classList.add('hidden-by-role');
+      });
+
+      const statusBadge = document.getElementById('role-status-badge');
+      const loginBtn = document.getElementById('teacher-login-btn');
+      if (isTeacher) {
+        if (statusBadge) {
+          statusBadge.innerText = '🟢 교사 제어 모드 (수업 진행중)';
+          statusBadge.className = 'bg-emerald-600 text-white font-black px-3 py-1 rounded-full text-xs animate-pulse';
+        }
+        if (loginBtn) loginBtn.innerText = '🚪 교사 로그아웃';
+      } else {
+        if (statusBadge) {
+          statusBadge.innerText = '🔒 학생 모드 (교사 제어 수신중)';
+          statusBadge.className = 'bg-blue-600 text-white font-black px-3 py-1 rounded-full text-xs';
+        }
+        if (loginBtn) loginBtn.innerText = '👨‍🏫 교사 로그인';
+      }
+    }
+
+    // 제어 동작 함수 (교사만 실행 가능)
+    function goToStage(stageNum, force = false) {
+      if (!isTeacher && !force) return;
+      sound.playClick();
+      state.currentStage = stageNum;
+      if (stageNum === 2) state.stage2Step = 1;
+      if (stageNum === 3) state.stage3Step = 0;
+      if (stageNum === 4) state.stage4Step = 0;
+      if (stageNum === 5) state.stage5Step = 0;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function prevStage() {
+      if (!isTeacher) return;
+      if (state.currentStage > 1) goToStage(state.currentStage - 1, true);
+    }
+
+    function nextStage() {
+      if (!isTeacher) return;
+      if (state.currentStage < 5) goToStage(state.currentStage + 1, true);
+    }
+
+    function showQuizCard(cardNum) {
+      if (!isTeacher) return;
+      sound.playClick();
+      state.quizStep = cardNum;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function finishStage1() {
+      if (!isTeacher) return;
+      sound.playCorrect();
+      state.quizStep = 'success';
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function revealNextGoal() {
+      if (!isTeacher) return;
+      sound.playCorrect();
+      state.stage2Step = 2;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function revealArithGroup1() {
+      if (!isTeacher) return;
+      sound.playCorrect();
+      state.stage3Step = 1;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function revealArithGroup2() {
+      if (!isTeacher) return;
+      sound.playCorrect();
+      state.stage3Step = 2;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function revealCompBlocks() {
+      if (!isTeacher) return;
+      sound.playCorrect();
+      state.stage4Step = 1;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function revealLogicBlocks() {
+      if (!isTeacher) return;
+      sound.playCorrect();
+      state.stage5Step = 1;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function revealTruthTables() {
+      if (!isTeacher) return;
+      sound.playCorrect();
+      state.stage5Step = 2;
+      renderStateUI();
+      if (isTeacher) broadcastState();
+    }
+
+    function switchLogicSim(type) {
+      sound.playClick();
+      state.logicTab = type;
+      switchLogicSimUI(type);
+      if (isTeacher) broadcastState();
+    }
+
+    function switchLogicSimUI(type) {
+      ['and', 'or', 'not'].forEach(t => {
+        const content = document.getElementById(`sim-${t}-content`);
+        const tab = document.getElementById(`tab-sim-${t}`);
+        if (content && tab) {
+          if (t === type) {
+            content.classList.remove('hidden');
+            tab.className = "sim-tab bg-[#A55EEA] text-white font-black px-5 py-2.5 rounded-2xl text-base shadow btn-3d";
+          } else {
+            content.classList.add('hidden');
+            tab.className = "sim-tab bg-white text-gray-700 font-bold px-5 py-2.5 rounded-2xl text-base border-2 border-purple-300 hover:bg-purple-50 btn-3d";
+          }
+        }
+      });
+    }
+
+    // 학생 개별 퀴즈 풀기
+    function checkQuiz(quizId, isCorrect, btn) {
+      sound.playClick();
+      const feedbackEl = document.getElementById(`q${quizId}-feedback`);
+      if (isCorrect) {
+        sound.playCorrect();
+        feedbackEl.innerHTML = `<div class="p-3 bg-emerald-100 border-2 border-emerald-300 text-emerald-900 font-black rounded-xl text-center text-lg animate-pop">⭕ 정답입니다! 아주 잘 이해했네요! 🎉</div>`;
+      } else {
+        sound.playWrong();
+        feedbackEl.innerHTML = `<div class="p-3 bg-rose-100 border-2 border-rose-300 text-rose-900 font-black rounded-xl text-center text-lg animate-pop">❌ 아쉽네요! 상황을 다시 천천히 생각해보세요!</div>`;
+      }
+      feedbackEl.classList.remove('hidden');
+    }
+
+    // 산술 연산 계산기
+    function calcBlock(op) {
+      const el1 = document.getElementById(`arith-${op}-1`);
+      const el2 = document.getElementById(`arith-${op}-2`);
+      const resEl = document.getElementById(`res-${op}`);
+      if (!el1 || !resEl) return;
+
+      const v1 = parseFloat(el1.value) || 0;
+      const v2 = el2 ? (parseFloat(el2.value) || 0) : 0;
+
+      let res = 0;
+      if (op === 'add') res = v1 + v2;
+      else if (op === 'sub') res = v1 - v2;
+      else if (op === 'mul') res = v1 * v2;
+      else if (op === 'div') res = v2 !== 0 ? (Math.round((v1 / v2) * 100) / 100) : 'Error';
+      else if (op === 'quot') res = v2 !== 0 ? Math.floor(v1 / v2) : 'Error';
+      else if (op === 'rem') res = v2 !== 0 ? (v1 % v2) : 'Error';
+      else if (op === 'pow') res = Math.pow(v1, 2);
+
+      resEl.innerText = res;
+    }
+
+    // 비교 연산 계산기
+    function calcCompBlock(op) {
+      const el1 = document.getElementById(`comp-${op}-1`);
+      const el2 = document.getElementById(`comp-${op}-2`);
+      const resEl = document.getElementById(`res-comp-${op}`);
+      if (!el1 || !el2 || !resEl) return;
+
+      const v1 = parseFloat(el1.value) || 0;
+      const v2 = parseFloat(el2.value) || 0;
+
+      let isTrue = false;
+      if (op === 'eq') isTrue = (v1 === v2);
+      else if (op === 'neq') isTrue = (v1 !== v2);
+      else if (op === 'gt') isTrue = (v1 > v2);
+      else if (op === 'lt') isTrue = (v1 < v2);
+      else if (op === 'gte') isTrue = (v1 >= v2);
+      else if (op === 'lte') isTrue = (v1 <= v2);
+
+      if (isTrue) {
+        resEl.innerText = 'True';
+        resEl.className = 'bg-[#00E676] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm animate-pop';
+      } else {
+        resEl.innerText = 'False';
+        resEl.className = 'bg-[#FF5252] text-white font-black px-3 py-1.5 rounded-xl text-base shadow-sm animate-pop';
+      }
+    }
+
+    // 논리 연산 토글
+    function toggleQuizHex(id) {
+      sound.playClick();
+      const btn = document.getElementById(`subhex-${id}`);
+      if (!btn) return;
+
+      const text = btn.innerText.trim();
+      const parts = text.split(':');
+      const label = parts[0];
+      const isTrue = parts[1] ? parts[1].trim() === '참' : false;
+
+      if (isTrue) {
+        btn.innerText = `${label}: 거짓`;
+        btn.classList.add('text-rose-300');
+      } else {
+        btn.innerText = `${label}: 참`;
+        btn.classList.remove('text-rose-300');
+      }
+      updateIntegratedSim();
+    }
+
+    function updateIntegratedSim() {
+      const pop1 = document.getElementById('subhex-pop-1')?.innerText.includes('참');
+      const pop2 = document.getElementById('subhex-pop-2')?.innerText.includes('참');
+      const resAndEl = document.getElementById('res-quiz-and');
+      if (resAndEl) {
+        if (pop1 && pop2) {
+          resAndEl.innerText = '🍿 True! 무료 팝콘 획득 성공!';
+          resAndEl.className = 'w-full bg-[#00E676] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop';
+        } else {
+          resAndEl.innerText = '🚫 False! 조건을 모두 만족하지 않아 팝콘 미지급!';
+          resAndEl.className = 'w-full bg-[#FF5252] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop';
+        }
+      }
+
+      const lib1 = document.getElementById('subhex-lib-1')?.innerText.includes('참');
+      const lib2 = document.getElementById('subhex-lib-2')?.innerText.includes('참');
+      const resOrEl = document.getElementById('res-quiz-or');
+      if (resOrEl) {
+        if (lib1 || lib2) {
+          resOrEl.innerText = '⭕ True! 도서관 책 대출 가능!';
+          resOrEl.className = 'w-full bg-[#00E676] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop';
+        } else {
+          resOrEl.innerText = '🚫 False! 도서관 책 대출 불가능!';
+          resOrEl.className = 'w-full bg-[#FF5252] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop';
+        }
+      }
+
+      const soc1 = document.getElementById('subhex-soc-1')?.innerText.includes('참');
+      const resNotEl = document.getElementById('res-quiz-not');
+      if (resNotEl) {
+        if (!soc1) {
+          resNotEl.innerText = '⚽ True! 맑은 날씨, 운동장에서 축구 진행!';
+          resNotEl.className = 'w-full bg-[#00E676] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop';
+        } else {
+          resNotEl.innerText = '☔ False! 비가 내려 운동장 축구 취소!';
+          resNotEl.className = 'w-full bg-[#FF5252] text-white font-black px-6 py-3.5 rounded-2xl text-lg shadow-md text-center animate-pop';
+        }
+      }
+    }
+
+    // 초기화
+    window.onload = function() {
+      goToStage(1, true);
+      connectMQTT();
+    };
+  </script>
+</body>
+</html>
